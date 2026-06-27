@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code project-local settings (personal permissions)
+.claude/
+
+# Leftover test/marker files
+HOAN
+RST!
+
+# Legacy hook handlers (superseded by pet_hooks_handler.py)
+handler.py
+hooks_handler.py

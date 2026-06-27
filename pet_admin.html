@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Pet · Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f0f14;color:#e2e2f0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+header{padding:0 28px;display:flex;align-items:center;gap:20px;border-bottom:1px solid #252538;background:#0d0d12;position:sticky;top:0;z-index:50}
+h1{font-size:1.1rem;color:#a78bfa;white-space:nowrap;padding:14px 0}
+.tabs{display:flex}
+.tab{padding:14px 18px;background:none;border:none;cursor:pointer;color:#555;font-size:.85rem;font-weight:500;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;margin-bottom:-1px}
+.tab:hover{color:#aaa}
+.tab.active{color:#a78bfa;border-color:#7c3aed}
+.content{display:none;padding:22px 28px;max-width:1400px}
+.content.active{display:block}
+section{background:#1a1a26;border-radius:10px;padding:16px 18px;margin-bottom:12px;border:1px solid #252538}
+h2{font-size:.68rem;color:#555;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
+.srow{display:flex;align-items:center;gap:9px}
+.dot{width:11px;height:11px;border-radius:50%;background:#4a4a5a;transition:background .4s}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}
+.sb{padding:8px 11px;border:none;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:600;color:#fff;display:flex;align-items:center;gap:5px;transition:filter .15s,transform .1s}
+.sb:hover{filter:brightness(1.2);transform:translateY(-1px)}
+.sb:active{transform:translateY(0);filter:brightness(.9)}
+.sr{display:grid;grid-template-columns:210px 1fr;align-items:center;gap:10px;margin-bottom:9px}
+.sr label{font-size:.81rem;color:#aaa}
+.sr input{background:#0f0f14;border:1px solid #252538;border-radius:6px;color:#e2e2f0;padding:6px 10px;font-size:.82rem;font-family:monospace;outline:none;width:100%;transition:border-color .2s}
+.sr input:focus{border-color:#7c3aed}
+.hint{margin-top:10px;font-size:.74rem;color:#444;line-height:1.8}
+.hint code{background:#12121e;border:1px solid #252538;padding:1px 5px;border-radius:4px;color:#7c6fa0}
+.bsave{margin-top:12px;padding:7px 18px;background:#7c3aed;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:600}
+.bsave:hover{background:#6d28d9}
+/* log */
+.lctrl{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-bottom:11px}
+.chips{display:flex;flex-wrap:wrap;gap:3px}
+.chip{padding:3px 9px;border-radius:100px;font-size:.7rem;font-weight:700;cursor:pointer;border:2px solid transparent;opacity:.35;transition:opacity .15s;color:#fff;user-select:none}
+.chip.on{opacity:1;border-color:rgba(255,255,255,.3)}
+.srch{background:#1a1a26;border:1px solid #252538;border-radius:7px;color:#e2e2f0;padding:6px 10px;font-size:.82rem;outline:none;min-width:180px}
+.srch:focus{border-color:#7c3aed}
+.cb{padding:5px 12px;border:1px solid #252538;border-radius:7px;background:#1a1a26;color:#777;font-size:.78rem;cursor:pointer;white-space:nowrap}
+.cb:hover{background:#252538;color:#e2e2f0}
+.cb.danger:hover{background:#2a1010;color:#f87171;border-color:#ef444455}
+.cb.on{background:#1c1235;color:#a78bfa;border-color:#7c3aed55}
+.lmeta{margin-left:auto;font-size:.74rem;color:#444}
+.ard{width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;margin-right:3px;animation:pulse 1.4s infinite}
+.ard.off{background:#333;animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
+.twrap{overflow-x:auto;border-radius:7px;border:1px solid #252538}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+thead th{background:#131320;padding:8px 10px;text-align:left;font-size:.66rem;color:#444;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid #252538;white-space:nowrap}
+tbody tr{border-bottom:1px solid #1a1a28}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:#1c1c2a}
+td{padding:7px 10px;vertical-align:top}
+.cid{color:#2d2d45;font-family:monospace;font-size:.72rem;width:36px}
+.ctime{font-family:monospace;font-size:.75rem;white-space:nowrap;color:#555}
+.badge{display:inline-block;padding:2px 8px;border-radius:100px;font-size:.7rem;font-weight:700;color:#fff;white-space:nowrap}
+.cfl{color:#444;font-family:monospace;font-size:.74rem;width:60px}
+.csrc{color:#2d2d45;font-family:monospace;font-size:.72rem;width:80px}
+.cproj{font-family:monospace;font-size:.75rem;color:#a78bfa;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.cinput{font-family:monospace;font-size:.72rem;color:#7dd3fc;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
+.cpay{cursor:default;width:100%}
+.psum{font-family:monospace;font-size:.73rem;color:#444;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:700px;cursor:pointer}
+.psum:hover{color:#7c6fa0}
+.lrow.open .psum{color:#7c6fa0}
+.pfull{display:none;margin-top:4px;padding:7px 9px;background:#0c0c12;border-radius:5px;border:1px solid #252538;font-family:monospace;font-size:.72rem;white-space:pre-wrap;word-break:break-all;line-height:1.55;cursor:text;user-select:text}
+.lrow.open .pfull{display:block}
+.jk{color:#79b8ff}.js{color:#9ecbff}.jn{color:#f8c555}.jb{color:#f99157}.jz{color:#666}
+.pag{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:.78rem;color:#444}
+.pb{padding:4px 10px;border:1px solid #252538;border-radius:6px;background:#1a1a26;color:#777;font-size:.77rem;cursor:pointer}
+.pb:hover:not(:disabled){background:#252538;color:#e2e2f0}
+.pb:disabled{opacity:.3;cursor:not-allowed}
+.psel{background:#1a1a26;border:1px solid #252538;color:#777;border-radius:5px;padding:2px 5px;font-size:.75rem}
+.pi{min-width:90px;text-align:center}
+.empty{padding:32px;text-align:center;color:#333;font-size:.84rem}
+.toast{position:fixed;bottom:18px;right:18px;background:#1a1a26;border:1px solid #7c3aed;border-radius:8px;padding:9px 14px;color:#e2e2f0;font-size:.79rem;opacity:0;pointer-events:none;transition:opacity .25s;z-index:99}
+.toast.show{opacity:1}
+.toast.err{border-color:#ef4444}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#x1F43E; Claude Pet</h1>
+  <nav class="tabs">
+    <button class="tab active" onclick="showTab('status',this)">&#x25CF; Status</button>
+    <button class="tab" onclick="showTab('log',this)">&#x1F4CB; Signal Log</button>
+    <button class="tab" onclick="showTab('sounds',this)">&#x1F50A; Sounds</button>
+  </nav>
+</header>
+
+<div id="t-status" class="content active">
+  <section>
+    <h2>Pet Status &mdash; localhost:7007</h2>
+    <div class="srow">
+      <div class="dot" id="dot"></div>
+      <span id="stlbl" style="font-size:.95rem">Connecting&hellip;</span>
+    </div>
+  </section>
+  <section>
+    <h2>Test States</h2>
+    <div class="bgrid">
+      <button class="sb" style="background:#3d3d50" onclick="send('idle')">&#9679; Idle</button>
+      <button class="sb" style="background:#b45309" onclick="send('thinking')">&#9689; Thinking</button>
+      <button class="sb" style="background:#1d4ed8" onclick="send('editing')">&#10000; Editing</button>
+      <button class="sb" style="background:#6d28d9" onclick="send('running')">&#9654; Running</button>
+      <button class="sb" style="background:#047857" onclick="send('attention_done')">&#10003; Done (bounce)</button>
+      <button class="sb" style="background:#92400e" onclick="send('attention_notify')">! Notify (bounce)</button>
+      <button class="sb" style="background:#10b981" onclick="send('success',4000)">&#10003; Success</button>
+      <button class="sb" style="background:#b91c1c" onclick="send('error',4000)">&#10005; Error</button>
+    </div>
+  </section>
+</div>
+
+<div id="t-log" class="content">
+  <div class="lctrl">
+    <div class="chips" id="chips"></div>
+    <input class="srch" id="srch" placeholder="&#x1F50D; Search state / payload&hellip;" oninput="onSearch()">
+    <button class="cb" id="sort-btn" onclick="toggleSort()">&#x2193; Newest</button>
+    <button class="cb on" id="live-btn" onclick="toggleLive()"><span class="ard" id="ard"></span>Live</button>
+    <button class="cb danger" onclick="clearLog()">&#x1F5D1; Clear</button>
+    <button class="cb" onclick="exportLog()">&#x2913; Export</button>
+    <span class="lmeta" id="lmeta"></span>
+  </div>
+  <div class="twrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Time</th>
+          <th>State</th>
+          <th>Project</th>
+          <th>Hook &rsaquo; Tool</th>
+          <th>Input</th>
+          <th>Flash ms</th>
+          <th style="width:100%">Fields &mdash; click to expand</th>
+        </tr>
+      </thead>
+      <tbody id="ltbody"></tbody>
+    </table>
+  </div>
+  <div class="pag">
+    <button class="pb" id="prev-btn" onclick="prevPage()" disabled>&#x2190;</button>
+    <span class="pi" id="pginfo"></span>
+    <button class="pb" id="next-btn" onclick="nextPage()" disabled>&#x2192;</button>
+    <span style="margin-left:auto;color:#333;font-size:.72rem">Per page:
+      <select class="psel" onchange="setPageSize(+this.value)">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
+  </div>
+</div>
+
+<div id="t-sounds" class="content">
+  <section>
+    <h2>Sound Config</h2>
+    <div id="snd"></div>
+    <div class="hint">
+      <strong>System sounds:</strong>
+      <code>SystemAsterisk</code> <code>SystemExclamation</code> <code>SystemHand</code> <code>SystemNotification</code> <code>Mail</code><br>
+      <strong>File .wav:</strong> <code>C:\Windows\Media\chimes.wav</code>
+      &nbsp; De trong = tat am thanh.
+    </div>
+    <button class="bsave" onclick="saveSounds()">&#x1F4BE; Luu</button>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SC = {
+  idle:'#4a4a5a', thinking:'#f59e0b', editing:'#3b82f6', running:'#8b5cf6',
+  success:'#10b981', error:'#ef4444', attention_done:'#10b981', attention_notify:'#f59e0b'
+};
+const AS = Object.keys(SC);
+const SL = {
+  attention_done:  'Hoan thanh - Stop (bounce)',
+  attention_notify:'Can action - Notification (bounce)'
+};
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function showTab(n, btn) {
+  document.querySelectorAll('.content').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
+  document.getElementById('t-' + n).classList.add('active');
+  btn.classList.add('active');
+  if (n === 'log') loadLog();
+  if (n === 'sounds') loadSounds();
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+async function fetchStatus() {
+  try {
+    const d = await (await fetch('/')).json();
+    const s = d.state || 'offline';
+    document.getElementById('dot').style.background = SC[s] || '#3d3d50';
+    document.getElementById('stlbl').textContent = s;
+  } catch {
+    document.getElementById('dot').style.background = '#3d3d50';
+    document.getElementById('stlbl').textContent = 'offline';
+  }
+}
+
+async function send(state, flash_ms = 0) {
+  try {
+    await fetch('/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({state, flash_ms})
+    });
+    setTimeout(fetchStatus, 300);
+    toast('Sent: ' + state);
+    if (_live) setTimeout(loadLog, 600);
+  } catch { toast('Pet khong phan hoi', true); }
+}
+
+// ── Signal Log ────────────────────────────────────────────────────────────────
+let _pg = 0, _psz = 50, _sort = 'desc', _live = true, _art = null;
+let _fs = new Set(AS), _q = '', _total = 0, _data = [];
+let _openRows = new Set();   // IDs of expanded rows
+let _renderedIds = new Set(); // IDs currently in DOM
+let _dirty = true;           // true = full re-render needed (filter/sort/page changed)
+
+function initChips() {
+  document.getElementById('chips').innerHTML = AS.map(s =>
+    `<span class="chip on" id="chip-${s}" style="background:${SC[s]}"
+      onclick="toggleChip('${s}')">${s}</span>`
+  ).join('');
+}
+
+function toggleChip(s) {
+  if (_fs.has(s)) {
+    if (_fs.size === 1) return;
+    _fs.delete(s);
+    document.getElementById('chip-' + s).classList.remove('on');
+  } else {
+    _fs.add(s);
+    document.getElementById('chip-' + s).classList.add('on');
+  }
+  _pg = 0; _dirty = true; loadLog();
+}
+
+function onSearch() { _q = document.getElementById('srch').value; _pg = 0; _dirty = true; loadLog(); }
+
+function toggleSort() {
+  _sort = _sort === 'desc' ? 'asc' : 'desc';
+  document.getElementById('sort-btn').textContent = _sort === 'desc' ? '↓ Newest' : '↑ Oldest';
+  _pg = 0; _dirty = true; loadLog();
+}
+
+function toggleLive() {
+  _live = !_live;
+  document.getElementById('live-btn').classList.toggle('on', _live);
+  document.getElementById('ard').classList.toggle('off', !_live);
+  if (_live) schedAR(); else clearTimeout(_art);
+}
+
+function schedAR() {
+  clearTimeout(_art);
+  if (_live) _art = setTimeout(loadLog, 2000);
+}
+
+async function loadLog() {
+  const url = `/logs?state=${encodeURIComponent([..._fs].join(','))}&q=${encodeURIComponent(_q)}&sort=${_sort}&limit=${_psz}&offset=${_pg * _psz}`;
+  try {
+    const d = await (await fetch(url)).json();
+    _data = d.logs || []; _total = d.total || 0;
+    renderLog(); updPag();
+  } catch {
+    document.getElementById('ltbody').innerHTML = '<tr><td colspan="8" class="empty">Cannot reach :7007</td></tr>';
+    _renderedIds.clear();
+  }
+  schedAR();
+}
+
+function inputSummary(pay) {
+  const inp = pay.tool_input;
+  if (inp && typeof inp === 'object') {
+    for (const k of ['command','file_path','path','pattern','query','prompt','description','new_string','content']) {
+      if (inp[k] != null) {
+        const v = String(inp[k]);
+        return v.length > 80 ? v.slice(0, 77) + '…' : v;
+      }
+    }
+    const v = JSON.stringify(inp);
+    return v.length > 80 ? v.slice(0, 77) + '…' : v;
+  }
+  if (pay.message) {
+    const v = String(pay.message);
+    return v.length > 80 ? v.slice(0, 77) + '…' : v;
+  }
+  return '';
+}
+
+function summarize(pay) {
+  const skip = new Set(['state','flash_ms','project','cwd','hook','tool','hook_event_name','tool_name','source']);
+  const entries = Object.entries(pay).filter(([k]) => !skip.has(k));
+  if (!entries.length) return '';
+  return entries.map(([k, v]) => {
+    const vs = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return '<b>' + esc(k) + '</b>: ' + esc(vs.length > 150 ? vs.slice(0, 147) + '…' : vs);
+  }).join(' &nbsp;·&nbsp; ');
+}
+
+function rowHtml(e) {
+  const col      = SC[e.state] || '#4a4a5a';
+  const raw      = JSON.stringify(e.payload || {}, null, 2);
+  const pay      = e.payload || {};
+  const proj     = pay.project || '—';
+  const cwd      = pay.cwd || '';
+  const hookInfo = [pay.hook, pay.tool].filter(Boolean).join(' › ') || '—';
+  const inpStr   = inputSummary(pay);
+  const inpFull  = JSON.stringify(pay.tool_input || pay.message || '', null, 2);
+  const sum      = summarize(pay);
+  const openCls  = _openRows.has(e.id) ? ' open' : '';
+  return `<tr class="lrow${openCls}" id="r${e.id}">
+    <td class="cid">${e.id}</td>
+    <td class="ctime">${e.dt}</td>
+    <td><span class="badge" style="background:${col}">${e.state}</span></td>
+    <td class="cproj" title="${esc(cwd)}">${esc(proj)}</td>
+    <td class="ctime" style="color:#666">${esc(hookInfo)}</td>
+    <td class="cinput" title="${esc(inpFull)}">${esc(inpStr)}</td>
+    <td class="cfl">${e.flash_ms || '&mdash;'}</td>
+    <td class="cpay">
+      <span class="psum" onclick="tp(${e.id})">${sum || '<span style="color:#2d2d45">—</span>'}</span>
+      <pre class="pfull" id="p${e.id}" onclick="event.stopPropagation()">${hl(esc(raw))}</pre>
+    </td>
+  </tr>`;
+}
+
+function renderLog() {
+  const el = document.getElementById('ltbody');
+
+  if (!_data.length) {
+    el.innerHTML = '<tr><td colspan="8" class="empty">No signals yet</td></tr>';
+    document.getElementById('lmeta').textContent = '';
+    _openRows.clear(); _renderedIds.clear(); _dirty = false;
+    return;
+  }
+
+  if (_dirty) {
+    // Full re-render: replace all rows, restore open state from _openRows
+    _renderedIds.clear();
+    el.innerHTML = _data.map(rowHtml).join('');
+    _data.forEach(e => _renderedIds.add(e.id));
+    _dirty = false;
+  } else {
+    // Incremental: only add/remove rows — never touch existing DOM nodes
+    const currentIds = new Set(_data.map(e => e.id));
+
+    // Remove rows that are no longer in the current page/filter
+    for (const id of [..._renderedIds]) {
+      if (!currentIds.has(id)) {
+        document.getElementById('r' + id)?.remove();
+        _renderedIds.delete(id);
+        _openRows.delete(id);
+      }
+    }
+
+    // Prepend new rows (desc) or append (asc)
+    const newEntries = _data.filter(e => !_renderedIds.has(e.id));
+    if (newEntries.length) {
+      const tmp = document.createElement('tbody');
+      tmp.innerHTML = newEntries.map(rowHtml).join('');
+      newEntries.forEach(e => _renderedIds.add(e.id));
+      if (_sort === 'desc') {
+        while (tmp.lastChild) el.insertBefore(tmp.lastChild, el.firstChild);
+      } else {
+        while (tmp.firstChild) el.appendChild(tmp.firstChild);
+      }
+    }
+  }
+
+  const hasOpen = _openRows.size > 0;
+  document.getElementById('lmeta').textContent =
+    _total + ' entries' + (hasOpen ? ' · ' + _openRows.size + ' expanded' : '');
+}
+
+function tp(id) {
+  const row = document.getElementById('r' + id);
+  row.classList.toggle('open');
+  if (row.classList.contains('open')) _openRows.add(id);
+  else _openRows.delete(id);
+  const hasOpen = _openRows.size > 0;
+  document.getElementById('lmeta').textContent =
+    _total + ' entries' + (hasOpen ? ' · ' + _openRows.size + ' expanded' : '');
+}
+
+function updPag() {
+  const pages = Math.max(1, Math.ceil(_total / _psz));
+  document.getElementById('pginfo').textContent = (_pg + 1) + ' / ' + pages;
+  document.getElementById('prev-btn').disabled = _pg === 0;
+  document.getElementById('next-btn').disabled = (_pg + 1) >= pages;
+}
+
+function prevPage() { if (_pg > 0) { _pg--; _dirty = true; loadLog(); } }
+function nextPage() { if ((_pg + 1) * _psz < _total) { _pg++; _dirty = true; loadLog(); } }
+function setPageSize(n) { _psz = n; _pg = 0; _dirty = true; loadLog(); }
+
+async function clearLog() {
+  if (!confirm('Clear all signal logs?')) return;
+  await fetch('/logs', {method: 'DELETE'});
+  _pg = 0; loadLog(); toast('Cleared');
+}
+
+function exportLog() {
+  fetch(`/logs?state=${AS.join(',')}&sort=${_sort}&limit=10000&offset=0`)
+    .then(r => r.json())
+    .then(d => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(d.logs, null, 2)], {type: 'application/json'}));
+      a.download = 'pet-signals-' + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.json';
+      a.click();
+    });
+}
+
+// ── Sounds ────────────────────────────────────────────────────────────────────
+async function loadSounds() {
+  try {
+    const s = await (await fetch('/sounds')).json();
+    document.getElementById('snd').innerHTML = Object.entries(SL).map(([k, l]) =>
+      `<div class="sr"><label>${l}</label>
+       <input id="s-${k}" value="${esc(s[k] || '')}" placeholder="de trong = tat"></div>`
+    ).join('');
+  } catch { toast('Load sounds failed', true); }
+}
+
+async function saveSounds() {
+  const p = {};
+  for (const k of Object.keys(SL)) p[k] = document.getElementById('s-' + k).value.trim();
+  try {
+    await fetch('/sounds', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p)});
+    toast('Da luu! Co hieu luc ngay.');
+  } catch { toast('Loi khi luu', true); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function hl(s) {
+  return s
+    .replace(/("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(?=\s*:))/g, '<span class="jk">$1</span>')
+    .replace(/("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")/g, '<span class="js">$1</span>')
+    .replace(/\b(true|false)\b/g, '<span class="jb">$1</span>')
+    .replace(/\bnull\b/g, '<span class="jz">null</span>')
+    .replace(/\b(-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)\b/g, '<span class="jn">$1</span>');
+}
+
+function toast(msg, err = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.className = 'toast', 2800);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+initChips();
+fetchStatus();
+setInterval(fetchStatus, 2000);
+schedAR();
+</script>
+</body>
+</html>
