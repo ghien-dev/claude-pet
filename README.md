@@ -37,20 +37,27 @@ The widget also shows your **Claude usage** overlaid on the pet:
 
 ## Install
 
+**One-liner (không cần clone repo):**
+
+```powershell
+irm https://raw.githubusercontent.com/ghien-dev/claude-pet/main/install.ps1 | iex
+```
+
+**Hoặc clone repo về rồi chạy:**
+
 ```bat
 install.bat
 ```
 
-This will:
-1. Install the `Pillow` Python package
-2. Copy files to `%USERPROFILE%\.claude-pet\`
-3. Copy the hook handler to `%USERPROFILE%\.claude\hooks\`
-4. Register the widget to auto-start with Windows
-5. Wire Claude Code hooks in `%USERPROFILE%\.claude\settings.json`
+Cả hai đều:
+1. Cài `Pillow`
+2. Copy files vào `%USERPROFILE%\.claude-pet\`
+3. Copy hook handler vào `%USERPROFILE%\.claude\hooks\`
+4. Đăng ký tự khởi động cùng Windows
+5. Wire Claude Code hooks trong `%USERPROFILE%\.claude\settings.json`
+6. Khởi động widget ngay
 
-Then:
-1. Launch the pet: `pythonw "%USERPROFILE%\.claude-pet\pet.py"`
-2. Restart Claude Code so hooks take effect
+Sau khi cài: **restart Claude Code** để hooks có hiệu lực.
 
 ---
 
