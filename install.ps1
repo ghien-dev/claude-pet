@@ -2,8 +2,13 @@
 <#
 .SYNOPSIS
     Claude Pet one-liner installer.
-    irm https://raw.githubusercontent.com/ghien-dev/claude-pet/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/ghien-dev/claude-pet/master/install.ps1 | iex
+
+.PARAMETER Dev
+    Copy files from local repo dir instead of downloading (for local testing).
+    Usage: & .\install.ps1 -Dev
 #>
+param([switch]$Dev)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -11,7 +16,8 @@ $ErrorActionPreference = 'Stop'
 # TLS 1.2 cho Windows 10 cu
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
-$BASE_URL  = 'https://raw.githubusercontent.com/ghien-dev/claude-pet/main'
+$BASE_URL  = 'https://raw.githubusercontent.com/ghien-dev/claude-pet/master'
+$LOCAL_SRC = if ($Dev) { $PSScriptRoot } else { $null }
 $INSTALL   = "$env:USERPROFILE\.claude-pet"
 $HOOKS_DIR = "$env:USERPROFILE\.claude\hooks"
 $STARTUP   = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
@@ -21,7 +27,11 @@ function Write-OK($msg)   { Write-Host "  OK  $msg" -ForegroundColor Green }
 function Write-Err($msg)  { Write-Host "  ERR $msg" -ForegroundColor Red }
 
 function Download($file, $dest) {
-    Invoke-WebRequest -Uri "$BASE_URL/$file" -OutFile $dest -UseBasicParsing
+    if ($LOCAL_SRC) {
+        Copy-Item -Path "$LOCAL_SRC\$file" -Destination $dest -Force
+    } else {
+        Invoke-WebRequest -Uri "$BASE_URL/$file" -OutFile $dest -UseBasicParsing
+    }
 }
 
 try {
