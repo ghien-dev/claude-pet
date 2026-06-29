@@ -40,6 +40,12 @@ def main():
     data["hooks"] = new_hooks
     new_keys = set(new_hooks.keys())
 
+    statusline_js = os.path.join(os.path.expanduser("~"), ".claude", "statusline.js")
+    data["statusLine"] = {
+        "type": "command",
+        "command": f'node "{statusline_js}"',
+    }
+
     os.makedirs(os.path.dirname(settings_path), exist_ok=True)
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -48,6 +54,7 @@ def main():
     updated = new_keys & old_keys
     if added:   print("      + Them hooks:", ", ".join(sorted(added)))
     if updated: print("      . Cap nhat:  ", ", ".join(sorted(updated)))
+    print("      OK statusLine:", statusline_js)
     print("      OK:", settings_path)
 
 

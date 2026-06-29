@@ -67,7 +67,8 @@ try {
         @{ src = 'pet_ui.py';               dst = "$INSTALL\pet_ui.py" },
         @{ src = 'pet_test.py';             dst = "$INSTALL\pet_test.py" },
         @{ src = 'pet_update_settings.py';  dst = "$INSTALL\pet_update_settings.py" },
-        @{ src = 'pet_hooks_handler.py';    dst = "$HOOKS_DIR\pet_hooks_handler.py" }
+        @{ src = 'pet_hooks_handler.py';    dst = "$HOOKS_DIR\pet_hooks_handler.py" },
+        @{ src = 'statusline.js';           dst = "$env:USERPROFILE\.claude\statusline.js" }
     )
 
     foreach ($f in $files) {
@@ -103,10 +104,10 @@ try {
     # 7. Launch pet
     Write-Step "Launching Claude Pet..."
     # Tat instance cu neu dang chay
-    $old = Get-Process pythonw -ErrorAction SilentlyContinue |
+    $old = Get-WmiObject Win32_Process -Filter "Name='pythonw.exe'" |
            Where-Object { $_.CommandLine -like "*claude-pet*" }
     if ($old) {
-        $old | Stop-Process -Force
+        $old | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Milliseconds 800
     }
     Start-Process pythonw -ArgumentList "`"$INSTALL\pet.py`""

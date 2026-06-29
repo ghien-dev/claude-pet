@@ -8,7 +8,9 @@ setlocal
 
 set "INSTALL_DIR=%USERPROFILE%\.claude-pet"
 set "HOOKS_DIR=%USERPROFILE%\.claude\hooks"
-set "CLAUDE_SETTINGS=%USERPROFILE%\.claude\settings.json"
+set "CLAUDE_DIR=%USERPROFILE%\.claude"
+set "CLAUDE_SETTINGS=%CLAUDE_DIR%\settings.json"
+set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "SCRIPT_DIR=%~dp0"
 
 echo.
@@ -16,89 +18,75 @@ echo   Claude Pet - Dang cai dat...
 echo   ─────────────────────────────────────────────
 echo.
 
-REM 0. Cài dependency Pillow (pet.py vẽ widget bằng PIL + layered window)
-echo [0/4] Cai dependency Pillow...
-python -m pip install --quiet Pillow
+REM 1. Kiem tra Python
+echo [1/6] Kiem tra Python...
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo   [!!] Khong tim thay Python. Cai tu https://python.org va thu lai.
+    pause & exit /b 1
+)
+python --version
 
-REM 1. Tạo thư mục
-echo [1/4] Tao thu muc...
+REM 2. Tao thu muc
+echo [2/6] Tao thu muc...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-if not exist "%HOOKS_DIR%" mkdir "%HOOKS_DIR%"
+if not exist "%HOOKS_DIR%"   mkdir "%HOOKS_DIR%"
+if not exist "%CLAUDE_DIR%"  mkdir "%CLAUDE_DIR%"
+echo    OK
 
-REM 2. Copy files
-echo [2/4] Copy files...
-copy /Y "%SCRIPT_DIR%pet.py"           "%INSTALL_DIR%\pet.py"           >nul
-copy /Y "%SCRIPT_DIR%hooks_handler.py" "%HOOKS_DIR%\hooks_handler.py"   >nul
-
-REM 3. Tạo startup shortcut (chạy pet khi Windows khởi động)
-echo [3/4] Tao startup script...
-
-REM Tạo .bat để launch pet (ẩn cửa sổ console)
-set "LAUNCHER=%INSTALL_DIR%\start-pet.bat"
-(
-  echo @echo off
-  echo pythonw "%INSTALL_DIR%\pet.py"
-) > "%LAUNCHER%"
-
-REM Tạo shortcut trong Startup folder
-set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "SHORTCUT=%STARTUP_DIR%\ClaudePet.bat"
-copy /Y "%LAUNCHER%" "%SHORTCUT%" >nul
-echo    Shortcut tao tai: %SHORTCUT%
-
-REM 4. Cài hooks vào Claude settings.json
-echo [4/4] Cap nhat Claude hooks...
-
-REM Backup settings.json nếu tồn tại
-if exist "%CLAUDE_SETTINGS%" (
-    copy /Y "%CLAUDE_SETTINGS%" "%CLAUDE_SETTINGS%.backup" >nul
-    echo    Backup: %CLAUDE_SETTINGS%.backup
+REM 3. Copy files
+echo [3/6] Copy files...
+copy /Y "%SCRIPT_DIR%pet.py"                 "%INSTALL_DIR%\pet.py"                  >nul && echo    OK  pet.py
+copy /Y "%SCRIPT_DIR%pet_admin.html"         "%INSTALL_DIR%\pet_admin.html"          >nul && echo    OK  pet_admin.html
+copy /Y "%SCRIPT_DIR%pet_ui.py"              "%INSTALL_DIR%\pet_ui.py"               >nul && echo    OK  pet_ui.py
+copy /Y "%SCRIPT_DIR%pet_test.py"            "%INSTALL_DIR%\pet_test.py"             >nul && echo    OK  pet_test.py
+copy /Y "%SCRIPT_DIR%pet_update_settings.py" "%INSTALL_DIR%\pet_update_settings.py" >nul && echo    OK  pet_update_settings.py
+copy /Y "%SCRIPT_DIR%pet_hooks_handler.py"   "%HOOKS_DIR%\pet_hooks_handler.py"     >nul && echo    OK  pet_hooks_handler.py
+copy /Y "%SCRIPT_DIR%statusline.js"          "%CLAUDE_DIR%\statusline.js"            >nul && echo    OK  statusline.js
+if not exist "%INSTALL_DIR%\pet_sounds.json" (
+    copy /Y "%SCRIPT_DIR%pet_sounds.json" "%INSTALL_DIR%\pet_sounds.json" >nul && echo    OK  pet_sounds.json
+) else (
+    echo    .   pet_sounds.json  (giu nguyen config hien co)
 )
 
-REM Ghi settings.json mới (merge bằng Python)
-python -c "
-import json, os, sys
+REM 4. Cai Pillow
+echo [4/6] Cai Pillow...
+python -m pip install --quiet Pillow
+echo    OK  Pillow
 
-settings_path = r'%CLAUDE_SETTINGS%'
-hooks_handler = r'python \"%USERPROFILE%\.claude\hooks\hooks_handler.py\"'.replace('%%', '%%')
+REM 5. Wire Claude Code hooks + statusLine
+echo [5/6] Cap nhat Claude hooks (settings.json)...
+python "%INSTALL_DIR%\pet_update_settings.py" "%CLAUDE_SETTINGS%"
 
-hook_cmd = {
-    'type': 'command',
-    'command': r'python \"%%USERPROFILE%%\.claude\hooks\hooks_handler.py\"'
-}
+REM 6. Tao autostart
+echo [6/6] Tao autostart...
+set "STARTUP_BAT=%STARTUP_DIR%\ClaudePet.bat"
+echo @echo off > "%STARTUP_BAT%"
+echo pythonw "%INSTALL_DIR%\pet.py" >> "%STARTUP_BAT%"
+echo    OK  %STARTUP_BAT%
 
-new_hooks = {
-    'PreToolUse':  [{'matcher': '', 'hooks': [hook_cmd]}],
-    'PostToolUse': [{'matcher': '', 'hooks': [hook_cmd]}],
-    'Stop':        [{'matcher': '', 'hooks': [hook_cmd]}],
-    'Notification':[{'matcher': '', 'hooks': [hook_cmd]}],
-}
+REM Launch pet
+echo.
+echo   Khoi dong pet...
+powershell -NoProfile -Command ^
+  "Get-WmiObject Win32_Process -Filter \"Name='pythonw.exe'\" | Where-Object { $_.CommandLine -like '*claude-pet*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+timeout /t 1 /nobreak >nul
+start "" pythonw "%INSTALL_DIR%\pet.py"
+timeout /t 2 /nobreak >nul
 
-if os.path.exists(settings_path):
-    with open(settings_path) as f:
-        data = json.load(f)
-else:
-    data = {}
-
-data.setdefault('hooks', {}).update(new_hooks)
-
-os.makedirs(os.path.dirname(settings_path), exist_ok=True)
-with open(settings_path, 'w') as f:
-    json.dump(data, f, indent=2)
-
-print('   Settings saved to:', settings_path)
-"
+python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7007', timeout=2)" >nul 2>&1
+if errorlevel 1 (
+    echo   [!!] Pet chua phan hoi tai :7007 -- kiem tra lai
+) else (
+    echo   OK  pet dang chay tai http://127.0.0.1:7007
+)
 
 echo.
 echo   ─────────────────────────────────────────────
-echo   XONG! Lam theo 2 buoc sau:
+echo   XONG! Restart Claude Code de hooks co hieu luc.
 echo.
-echo   1. Chay pet ngay bay gio:
-echo      pythonw "%INSTALL_DIR%\pet.py"
-echo.
-echo   2. Restart Claude Code de hooks co hieu luc.
-echo.
-echo   Pet se tu dong chay khi Windows khoi dong.
+echo   Widget : floating circle on your desktop
+echo   Admin  : http://localhost:7007/ui
 echo   ─────────────────────────────────────────────
 echo.
 pause

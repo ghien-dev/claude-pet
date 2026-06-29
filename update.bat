@@ -73,6 +73,7 @@ call :copyfile "pet_hooks_handler.py"   "%HOOKS_DIR%\pet_hooks_handler.py"
 call :copyfile "pet_ui.py"              "%INSTALL_DIR%\pet_ui.py"
 call :copyfile "pet_test.py"            "%INSTALL_DIR%\pet_test.py"
 call :copyfile "pet_update_settings.py" "%INSTALL_DIR%\pet_update_settings.py"
+call :copyfile "statusline.js"          "%USERPROFILE%\.claude\statusline.js"
 
 if not exist "%INSTALL_DIR%\pet_sounds.json" (
     copy /Y "%SCRIPT_DIR%pet_sounds.json" "%INSTALL_DIR%\pet_sounds.json" >nul 2>&1
@@ -144,6 +145,7 @@ echo.
 echo   Backup (.backup.!BACKUP_DT!)   :  !BACKUP_STATUS!
 echo     %USERPROFILE%\.claude\settings.json
 echo     %USERPROFILE%\.claude\hooks\pet_hooks_handler.py
+echo     (statusline.js khong backup -- khong phai user config)
 echo.
 echo   [1/6] Thu muc cai dat          :  OK
 echo   [2/6] Backup .claude files     :  !BACKUP_STATUS!

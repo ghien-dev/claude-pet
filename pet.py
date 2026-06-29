@@ -315,10 +315,13 @@ class PetWidget:
             self._poll_usage()
 
         # Bounce: cửa sổ ĐỨNG YÊN ở giữa; cụm vòng tròn nảy trong bitmap (thanh 5H làm sàn).
-        # Chỉ nảy khi đã tới giữa (không sliding) và không hover.
+        # Hover → dừng tại đỉnh (bounce_px max) thay vì đáy.
         bounce_px = 0.0
-        if self._bouncing and not self._sliding and not self._hover:
-            bounce_px = 14 * abs(math.sin(t_s * 4.0))
+        if self._bouncing and not self._sliding:
+            if self._hover:
+                bounce_px = 14.0
+            else:
+                bounce_px = 14 * abs(math.sin(t_s * 4.0))
 
         # Flash → idle
         if self.flash_until and t_s > self.flash_until:
