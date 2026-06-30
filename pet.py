@@ -712,7 +712,9 @@ def make_handler(pet: PetWidget):
         def log_message(self, *a): pass
 
         def do_GET(self):
-            path = self.path.split("?")[0]
+            p    = urlparse(self.path)
+            path = p.path
+            qs   = parse_qs(p.query)
             if path == "/":
                 accept = self.headers.get("Accept", "")
                 if "text/html" in accept:
@@ -727,6 +729,25 @@ def make_handler(pet: PetWidget):
                 self._json(200, _read_sounds())
             elif path == "/pet_status":
                 self._json(200, {"state": pet.state})
+            elif path == "/rv":
+                sess = pet._rv_session
+                tok  = qs.get("token", [""])[0]
+                if sess is None or tok != sess.token:
+                    self._send_raw(403, "text/plain", b"Forbidden")
+                else:
+                    ip = self.headers.get("Host", "").split(":")[0] or sess.ip
+                    self._send_raw(200, "text/html; charset=utf-8",
+                                   _rv_phone_html(sess.token, ip).encode())
+            elif path == "/rv/poll":
+                sess = pet._rv_session
+                tok  = qs.get("token", [""])[0]
+                if sess is None or tok != sess.token:
+                    self._json(403, {"error": "forbidden"})
+                else:
+                    since = int(qs.get("since", ["0"])[0])
+                    with sess._lock:
+                        msgs = [m for m in sess._messages if m["id"] > since]
+                    self._json(200, {"messages": msgs})
             else:
                 self._json(404, {"error": "not found"})
 
@@ -751,6 +772,21 @@ def make_handler(pet: PetWidget):
                     self._json(200, {"ok": True})
                 except Exception as ex:
                     self._json(400, {"error": str(ex)})
+            elif path == "/rv/send":
+                sess = pet._rv_session
+                try:
+                    data = json.loads(body)
+                    if sess is None or data.get("token") != sess.token:
+                        self._json(403, {"error": "forbidden"})
+                        return
+                    text = str(data.get("text", "")).strip()
+                    if not text:
+                        self._json(400, {"error": "empty"})
+                        return
+                    msg = sess.add_message(text)
+                    self._json(200, {"ok": True, "id": msg["id"]})
+                except Exception as ex:
+                    self._json(400, {"error": str(ex)})
             else:
                 self._json(404, {"error": "not found"})
 
@@ -765,6 +801,9 @@ def make_handler(pet: PetWidget):
         def do_OPTIONS(self):
             self.send_response(200)
             self.send_header("Allow", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.end_headers()
 
         def _serve_logs(self):
@@ -789,9 +828,13 @@ def make_handler(pet: PetWidget):
 
         def _json(self, code: int, obj: dict):
             body = json.dumps(obj).encode()
+            self._send_raw(code, "application/json", body)
+
+        def _send_raw(self, code: int, ct: str, body: bytes):
             self.send_response(code)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", ct)
             self.send_header("Content-Length", len(body))
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(body)
 
@@ -812,7 +855,7 @@ def make_handler(pet: PetWidget):
 
 
 def start_server(pet: PetWidget, port: int = 7007):
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(pet))
+    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(pet))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     print(f"[claude-pet] HTTP  :  http://127.0.0.1:{port}")
@@ -821,7 +864,7 @@ def start_server(pet: PetWidget, port: int = 7007):
 
 # ── Remote Voice ─────────────────────────────────────────────────────────────
 
-def _rv_phone_html(token: str, port: int, ip: str) -> str:
+def _rv_phone_html(token: str, ip: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -846,7 +889,7 @@ button:active{{background:#2563eb;transform:scale(.98)}}
 <div id="status"></div>
 <button onclick="send()">Send</button>
 <script>
-const TOKEN="{token}",BASE="http://{ip}:{port}",txt=document.getElementById("txt"),st=document.getElementById("status");
+const TOKEN="{token}",BASE="http://{ip}:7007",txt=document.getElementById("txt"),st=document.getElementById("status");
 async function send(){{
   const text=txt.value.trim();
   if(!text)return;
@@ -866,19 +909,16 @@ txt.addEventListener("keydown",e=>{{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey))s
 
 class RemoteVoiceSession:
     def __init__(self, on_message):
-        self.token      = secrets.token_urlsafe(12)
-        self.port       = self._free_port()
-        self.ip         = self._local_ip()
+        self.token       = secrets.token_urlsafe(12)
+        self.ip          = self._local_ip()
         self._on_message = on_message
         self._messages   = []
         self._msg_id     = 0
         self._lock       = threading.Lock()
-        self._server     = None
-        self._start_server()
 
     @property
     def url(self):
-        return f"http://{self.ip}:{self.port}/rv?token={self.token}"
+        return f"http://{self.ip}:7007/rv?token={self.token}"
 
     def add_message(self, text: str) -> dict:
         with self._lock:
@@ -889,18 +929,7 @@ class RemoteVoiceSession:
         return msg
 
     def stop(self):
-        if self._server:
-            try:
-                self._server.shutdown()
-            except Exception:
-                pass
-            self._server = None
-
-    @staticmethod
-    def _free_port() -> int:
-        with socket.socket() as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
+        pass
 
     @staticmethod
     def _local_ip() -> str:
@@ -910,75 +939,6 @@ class RemoteVoiceSession:
                 return s.getsockname()[0]
         except Exception:
             return "127.0.0.1"
-
-    def _start_server(self):
-        sess = self
-
-        class _H(BaseHTTPRequestHandler):
-            def log_message(self, *_): pass
-
-            def do_GET(self):
-                p  = urlparse(self.path)
-                qs = parse_qs(p.query)
-                tok = qs.get("token", [""])[0]
-                if p.path == "/rv":
-                    if tok != sess.token:
-                        self._send(403, "text/plain", b"Forbidden")
-                    else:
-                        html = _rv_phone_html(sess.token, sess.port, sess.ip)
-                        self._send(200, "text/html; charset=utf-8", html.encode())
-                elif p.path == "/rv/poll":
-                    if tok != sess.token:
-                        self._send(403, "application/json", b'{"error":"forbidden"}')
-                    else:
-                        since = int(qs.get("since", ["0"])[0])
-                        with sess._lock:
-                            msgs = [m for m in sess._messages if m["id"] > since]
-                        self._send(200, "application/json", json.dumps({"messages": msgs}).encode())
-                else:
-                    self._send(404, "text/plain", b"Not found")
-
-            def do_POST(self):
-                p      = urlparse(self.path)
-                length = int(self.headers.get("Content-Length", 0))
-                body   = self.rfile.read(length)
-                if p.path == "/rv/send":
-                    try:
-                        data = json.loads(body)
-                        if data.get("token") != sess.token:
-                            self._send(403, "application/json", b'{"error":"forbidden"}')
-                            return
-                        text = str(data.get("text", "")).strip()
-                        if not text:
-                            self._send(400, "application/json", b'{"error":"empty"}')
-                            return
-                        msg = sess.add_message(text)
-                        self._send(200, "application/json",
-                                   json.dumps({"ok": True, "id": msg["id"]}).encode())
-                    except Exception as ex:
-                        self._send(400, "application/json",
-                                   json.dumps({"error": str(ex)}).encode())
-                else:
-                    self._send(404, "text/plain", b"Not found")
-
-            def do_OPTIONS(self):
-                self.send_response(200)
-                for k, v in [("Access-Control-Allow-Origin", "*"),
-                              ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
-                              ("Access-Control-Allow-Headers", "Content-Type")]:
-                    self.send_header(k, v)
-                self.end_headers()
-
-            def _send(self, code: int, ct: str, body: bytes):
-                self.send_response(code)
-                self.send_header("Content-Type", ct)
-                self.send_header("Content-Length", len(body))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(body)
-
-        self._server = ThreadingHTTPServer(("0.0.0.0", self.port), _H)
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
 
 
 class RemoteVoiceWindow:
@@ -996,6 +956,7 @@ class RemoteVoiceWindow:
         self._canvas: tk.Canvas | None = None
         self._canvas_win_id  = None
         self._qr_frame: tk.Frame | None = None
+        self._active_edit: dict | None = None  # {"save_fn": fn, "row": Frame}
         self._build()
         self._poll()
 
@@ -1164,35 +1125,53 @@ class RemoteVoiceWindow:
             self._root.clipboard_append(current[0])
 
         def _edit():
-            lbl.pack_forget()
-            win_h   = self._win.winfo_height()
-            n_lines = max(int(win_h * 0.7) // 17, 3)
+            # Auto-save any currently open edit before opening a new one
+            if self._active_edit and self._active_edit.get("save_fn"):
+                self._active_edit["save_fn"]()
 
-            edit_row = tk.Frame(frame, bg="#0f172a")
-            edit_row.pack(fill="x", padx=4, pady=(0, 2), before=btn_row)
+            lbl.pack_forget()
+
+            self._win.update_idletasks()
+            win_h = self._win.winfo_height()
+            win_w = self._win.winfo_width()
+            h     = int(win_h * 0.7)
+            y     = (win_h - h) // 2
+
+            # Float edit box over the window so we control position/size exactly
+            edit_row = tk.Frame(self._win, bg="#0f172a",
+                                highlightbackground="#3b82f6", highlightthickness=1)
+            edit_row.place(x=4, y=y, width=win_w - 8, height=h)
+
+            # Pack btn_col FIRST so it claims right-side space before txt expands
+            btn_col = tk.Frame(edit_row, bg="#0f172a")
+            btn_col.pack(side="right", fill="y", padx=(2, 0))
 
             txt = tk.Text(edit_row, bg="#0f172a", fg="#e0e0e0",
                           relief="flat", font=("Segoe UI", 10),
                           insertbackground="#e0e0e0", bd=0,
-                          wrap="word", height=n_lines, padx=8, pady=6)
+                          wrap="word", padx=8, pady=6)
             txt.pack(side="left", fill="both", expand=True)
             txt.insert("1.0", current[0])
             txt.focus_set()
             txt.mark_set("insert", "end")
 
+            def _close_edit_row():
+                edit_row.destroy()
+                lbl.pack(fill="x", padx=10, pady=(8, 2), before=btn_row)
+                if self._active_edit and self._active_edit.get("row") is edit_row:
+                    self._active_edit = None
+
             def _save(_=None):
                 new_text = txt.get("1.0", "end-1c")
                 current[0] = new_text
                 lbl.config(text=new_text)
-                edit_row.pack_forget()
-                lbl.pack(fill="x", padx=10, pady=(8, 2), before=btn_row)
+                _close_edit_row()
 
             def _cancel(_=None):
-                edit_row.pack_forget()
-                lbl.pack(fill="x", padx=10, pady=(8, 2), before=btn_row)
+                _close_edit_row()
 
-            btn_col = tk.Frame(edit_row, bg="#0f172a")
-            btn_col.pack(side="right", fill="y", padx=(2, 0))
+            self._active_edit = {"save_fn": _save, "row": edit_row}
+
             tk.Button(btn_col, text="✓", command=_save,
                       bg="#10b981", fg="#ffffff", activebackground="#059669",
                       relief="flat", font=("Segoe UI", 14, "bold"),
