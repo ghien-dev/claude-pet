@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Claude Code statusline script (Windows-friendly, Node.js).
+ * Claude Code statusline script (Windows-friendly, Node.js). oooooooooooooooooooookkkk
  *
  * Việc của script này có 2 phần:
  *   1. In ra một dòng status ngắn gọn để Claude Code hiển thị ở statusline.

@@ -16,9 +16,18 @@ import os
 import winsound
 import collections
 import ctypes
+import socket
+import secrets
+import queue as _queue_mod
 from ctypes import wintypes
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageChops
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageChops, ImageTk
 from urllib.parse import urlparse, parse_qs
+
+try:
+    import qrcode as _qrcode
+    _HAS_QRCODE = True
+except ImportError:
+    _HAS_QRCODE = False
 
 # ── Sounds config (đọc từ file mỗi lần play — hot-reload từ UI không cần restart) ──
 SOUNDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pet_sounds.json")
@@ -85,6 +94,10 @@ class PetWidget:
         self._drag_y = 0
         self._drag_moved = False
 
+        # Remote Voice
+        self._rv_session = None
+        self._rv_window  = None
+
         self._setup_window()
         self._build_ui()
         self._setup_input()
@@ -112,12 +125,6 @@ class PetWidget:
     # ── UI (menu only — vẽ bằng PIL + layered window, không dùng Canvas) ─────────
     def _build_ui(self):
         self.menu = tk.Menu(self.root, tearoff=0)
-        self.menu.add_command(label="Open Admin Panel", command=self._open_ui)
-        self.menu.add_separator()
-        self.menu.add_command(label="Hide",       command=self.root.withdraw)
-        self.menu.add_command(label="Reset idle", command=self._reset_idle)
-        self.menu.add_separator()
-        self.menu.add_command(label="Quit",       command=self.root.destroy)
         self.root.bind("<Button-3>", self._show_menu)
 
     def _setup_layered(self):
@@ -152,6 +159,9 @@ class PetWidget:
         x = self.root.winfo_x() + dx
         y = self.root.winfo_y() + dy
         self.root.geometry(f"+{x}+{y}")
+        if self._rv_window and self._rv_window.is_alive():
+            rw = self._rv_window._win
+            rw.geometry(f"+{rw.winfo_x() + dx}+{rw.winfo_y() + dy}")
 
     def _on_release(self, e):
         # Phân biệt click vs drag: nếu không di chuyển = click
@@ -169,11 +179,44 @@ class PetWidget:
         self._hover = False
 
     def _show_menu(self, e):
-        self.menu.tk_popup(e.x_root, e.y_root)
+        m = self.menu
+        m.delete(0, "end")
+        m.add_command(label="Open Admin Panel",   command=self._open_ui)
+        m.add_command(label="Open Remote Voice",  command=self._open_remote_voice)
+        m.add_separator()
+        m.add_command(label="Hide",               command=self.root.withdraw)
+        m.add_command(label="Reset idle",         command=self._reset_idle)
+        m.add_separator()
+        m.add_command(label="Quit",               command=self.root.destroy)
+        m.tk_popup(e.x_root, e.y_root)
 
     def _open_ui(self):
         import webbrowser
         webbrowser.open("http://127.0.0.1:7007/ui")
+
+    # ── Remote Voice ──────────────────────────────────────────────────────────
+    def _open_remote_voice(self):
+        if self._rv_session is None:
+            self._rv_session = RemoteVoiceSession(self._on_rv_message)
+            self._rv_window  = RemoteVoiceWindow(self.root, self._rv_session,
+                                                  on_new_session=self._new_rv_session)
+        else:
+            self._rv_window.toggle()
+
+    def _new_rv_session(self):
+        if self._rv_session:
+            self._rv_session.stop()
+        self._rv_session = RemoteVoiceSession(self._on_rv_message)
+        if self._rv_window and self._rv_window.is_alive():
+            self._rv_window.insert_new_session_qr(self._rv_session)
+            self._rv_window.show()
+        else:
+            self._rv_window = RemoteVoiceWindow(self.root, self._rv_session,
+                                                 on_new_session=self._new_rv_session)
+
+    def _on_rv_message(self, msg: dict):
+        if self._rv_window:
+            self._rv_window.enqueue(msg)
 
     # ── Attention mode ────────────────────────────────────────────────────────
     def _enter_attention(self, state: str):
@@ -774,6 +817,433 @@ def start_server(pet: PetWidget, port: int = 7007):
     thread.start()
     print(f"[claude-pet] HTTP  :  http://127.0.0.1:{port}")
     print(f"[claude-pet] Admin :  http://127.0.0.1:{port}/ui")
+
+
+# ── Remote Voice ─────────────────────────────────────────────────────────────
+
+def _rv_phone_html(token: str, port: int, ip: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Remote Voice</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#1a1a2e;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+     display:flex;flex-direction:column;height:100dvh;padding:12px 12px 20px;gap:10px}}
+textarea{{flex:1;background:#16213e;color:#e0e0e0;border:1.5px solid #3b82f6;border-radius:14px;
+          padding:14px;font-size:16px;resize:none;outline:none;line-height:1.5}}
+textarea::placeholder{{color:#4b5563}}
+#status{{font-size:13px;color:#6b7280;text-align:center;min-height:18px;padding:2px 0}}
+button{{background:#3b82f6;color:#fff;border:none;border-radius:14px;padding:15px;
+        font-size:17px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}}
+button:active{{background:#2563eb;transform:scale(.98)}}
+</style>
+</head>
+<body>
+<textarea id="txt" placeholder="Nhập tin nhắn... (Ctrl+Enter để gửi)"></textarea>
+<div id="status"></div>
+<button onclick="send()">Send</button>
+<script>
+const TOKEN="{token}",BASE="http://{ip}:{port}",txt=document.getElementById("txt"),st=document.getElementById("status");
+async function send(){{
+  const text=txt.value.trim();
+  if(!text)return;
+  st.textContent="Sending...";
+  try{{
+    const r=await fetch(BASE+"/rv/send",{{method:"POST",headers:{{"Content-Type":"application/json"}},
+      body:JSON.stringify({{token:TOKEN,text}})}});
+    if(r.ok){{txt.value="";st.textContent="✓ Sent";setTimeout(()=>st.textContent="",2000)}}
+    else st.textContent="Error "+r.status;
+  }}catch(e){{st.textContent="Network error";}}
+}}
+txt.addEventListener("keydown",e=>{{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey))send()}});
+</script>
+</body>
+</html>"""
+
+
+class RemoteVoiceSession:
+    def __init__(self, on_message):
+        self.token      = secrets.token_urlsafe(12)
+        self.port       = self._free_port()
+        self.ip         = self._local_ip()
+        self._on_message = on_message
+        self._messages   = []
+        self._msg_id     = 0
+        self._lock       = threading.Lock()
+        self._server     = None
+        self._start_server()
+
+    @property
+    def url(self):
+        return f"http://{self.ip}:{self.port}/rv?token={self.token}"
+
+    def add_message(self, text: str) -> dict:
+        with self._lock:
+            self._msg_id += 1
+            msg = {"id": self._msg_id, "text": text, "ts": time.time()}
+            self._messages.append(msg)
+        self._on_message(msg)
+        return msg
+
+    def stop(self):
+        if self._server:
+            try:
+                self._server.shutdown()
+            except Exception:
+                pass
+            self._server = None
+
+    @staticmethod
+    def _free_port() -> int:
+        with socket.socket() as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
+
+    @staticmethod
+    def _local_ip() -> str:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except Exception:
+            return "127.0.0.1"
+
+    def _start_server(self):
+        sess = self
+
+        class _H(BaseHTTPRequestHandler):
+            def log_message(self, *_): pass
+
+            def do_GET(self):
+                p  = urlparse(self.path)
+                qs = parse_qs(p.query)
+                tok = qs.get("token", [""])[0]
+                if p.path == "/rv":
+                    if tok != sess.token:
+                        self._send(403, "text/plain", b"Forbidden")
+                    else:
+                        html = _rv_phone_html(sess.token, sess.port, sess.ip)
+                        self._send(200, "text/html; charset=utf-8", html.encode())
+                elif p.path == "/rv/poll":
+                    if tok != sess.token:
+                        self._send(403, "application/json", b'{"error":"forbidden"}')
+                    else:
+                        since = int(qs.get("since", ["0"])[0])
+                        with sess._lock:
+                            msgs = [m for m in sess._messages if m["id"] > since]
+                        self._send(200, "application/json", json.dumps({"messages": msgs}).encode())
+                else:
+                    self._send(404, "text/plain", b"Not found")
+
+            def do_POST(self):
+                p      = urlparse(self.path)
+                length = int(self.headers.get("Content-Length", 0))
+                body   = self.rfile.read(length)
+                if p.path == "/rv/send":
+                    try:
+                        data = json.loads(body)
+                        if data.get("token") != sess.token:
+                            self._send(403, "application/json", b'{"error":"forbidden"}')
+                            return
+                        text = str(data.get("text", "")).strip()
+                        if not text:
+                            self._send(400, "application/json", b'{"error":"empty"}')
+                            return
+                        msg = sess.add_message(text)
+                        self._send(200, "application/json",
+                                   json.dumps({"ok": True, "id": msg["id"]}).encode())
+                    except Exception as ex:
+                        self._send(400, "application/json",
+                                   json.dumps({"error": str(ex)}).encode())
+                else:
+                    self._send(404, "text/plain", b"Not found")
+
+            def do_OPTIONS(self):
+                self.send_response(200)
+                for k, v in [("Access-Control-Allow-Origin", "*"),
+                              ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                              ("Access-Control-Allow-Headers", "Content-Type")]:
+                    self.send_header(k, v)
+                self.end_headers()
+
+            def _send(self, code: int, ct: str, body: bytes):
+                self.send_response(code)
+                self.send_header("Content-Type", ct)
+                self.send_header("Content-Length", len(body))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+
+        self._server = ThreadingHTTPServer(("0.0.0.0", self.port), _H)
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+
+
+class RemoteVoiceWindow:
+    _WIN_W = 320
+
+    def __init__(self, root: tk.Tk, session: RemoteVoiceSession, on_new_session=None):
+        self._root           = root
+        self._session        = session
+        self._on_new_session = on_new_session
+        self._queue          = _queue_mod.Queue()
+        self._visible        = True
+        self._photo_refs: list = []
+        self._win: tk.Toplevel | None = None
+        self._scroll_frame: tk.Frame | None = None
+        self._canvas: tk.Canvas | None = None
+        self._canvas_win_id  = None
+        self._qr_frame: tk.Frame | None = None
+        self._build()
+        self._poll()
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+    def _build(self):
+        sw = self._root.winfo_screenwidth()
+        sh = self._root.winfo_screenheight()
+        W  = self._WIN_W
+        H  = sh // 3
+        x  = sw - W - CORNER_MARGIN
+        y  = sh - WINDOW_SIZE - CORNER_MARGIN - 48 - H - 8
+
+        self._win = win = tk.Toplevel(self._root)
+        win.title("Remote Voice")
+        win.geometry(f"{W}x{H}+{x}+{y}")
+        win.resizable(False, True)
+        win.attributes("-topmost", True)
+        win.configure(bg="#1a1a2e")
+        win.protocol("WM_DELETE_WINDOW", self.hide)
+
+        # Header bar
+        hdr = tk.Frame(win, bg="#111827", height=28)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        _btn_style = dict(bg="#111827", fg="#6b7280", relief="flat", pady=0,
+                          cursor="hand2", font=("Segoe UI", 8),
+                          activebackground="#1f2937", activeforeground="#9ca3af")
+        tk.Button(hdr, text="⌫ Clear", padx=8, command=self._clear_messages,
+                  **_btn_style).pack(side="left", padx=4)
+        if self._on_new_session:
+            tk.Button(hdr, text="↺ New Session", padx=6,
+                      command=self._on_new_session,
+                      **_btn_style).pack(side="left")
+
+        # Scrollable area
+        body = tk.Frame(win, bg="#1a1a2e")
+        body.pack(fill="both", expand=True)
+
+        self._canvas = c = tk.Canvas(body, bg="#1a1a2e", highlightthickness=0, bd=0)
+        sb = tk.Scrollbar(body, orient="vertical", command=c.yview)
+        c.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        c.pack(side="left", fill="both", expand=True)
+
+        self._scroll_frame = sf = tk.Frame(c, bg="#1a1a2e")
+        self._canvas_win_id = c.create_window((0, 0), window=sf, anchor="nw")
+        sf.bind("<Configure>", lambda e: c.configure(scrollregion=c.bbox("all")))
+        c.bind("<Configure>", self._on_resize)
+        win.bind("<MouseWheel>", self._on_wheel)
+        c.bind("<MouseWheel>", self._on_wheel)
+        sf.bind("<MouseWheel>", self._on_wheel)
+
+        # Initial QR at the bottom
+        self._qr_frame = tk.Frame(sf, bg="#1a1a2e")
+        self._qr_frame.pack(side="top", fill="x", pady=(6, 8))
+        self._render_qr_into(self._qr_frame, self._session, label="")
+
+    def _on_resize(self, e):
+        self._canvas.itemconfig(self._canvas_win_id, width=e.width)
+
+    def _on_wheel(self, e):
+        self._canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+    # ── QR rendering ──────────────────────────────────────────────────────────
+    def _render_qr_into(self, frame: tk.Frame, session: RemoteVoiceSession,
+                        label: str = ""):
+        for w in frame.winfo_children():
+            w.destroy()
+        url = session.url
+
+        if label:
+            tk.Label(frame, text=label, bg="#1a1a2e", fg="#10b981",
+                     font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=8, pady=(4, 0))
+
+        if _HAS_QRCODE:
+            try:
+                qr = _qrcode.QRCode(error_correction=_qrcode.constants.ERROR_CORRECT_L,
+                                     box_size=5, border=2)
+                qr.add_data(url)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+                photo = ImageTk.PhotoImage(img)
+                self._photo_refs.append(photo)
+
+                # Container so overlay can use place() on top of QR
+                qr_box = tk.Frame(frame, bg="#ffffff")
+                qr_box.pack(pady=(4, 2))
+                qr_lbl = tk.Label(qr_box, image=photo, bg="#ffffff", cursor="hand2")
+                qr_lbl.pack()
+
+                overlay = tk.Label(qr_box, text="Copied!", bg="#000000", fg="#ffffff",
+                                   font=("Segoe UI", 12, "bold"), padx=12, pady=6)
+                _flash_after = [None]
+
+                def _copy_qr(_=None, _url=url):
+                    self._root.clipboard_clear()
+                    self._root.clipboard_append(_url)
+                    overlay.place(relx=0.5, rely=0.5, anchor="center")
+                    overlay.lift()
+                    if _flash_after[0]:
+                        self._root.after_cancel(_flash_after[0])
+                    _flash_after[0] = self._root.after(2000, overlay.place_forget)
+
+                qr_lbl.bind("<Button-1>", _copy_qr)
+            except Exception:
+                pass
+
+        # URL row: text + copy icon
+        url_row = tk.Frame(frame, bg="#1a1a2e")
+        url_row.pack(fill="x", padx=8, pady=(0, 6))
+        url_lbl = tk.Label(url_row, text=url, fg="#3b82f6", bg="#1a1a2e",
+                           font=("Segoe UI", 8), wraplength=self._WIN_W - 52,
+                           cursor="hand2", justify="left")
+        url_lbl.pack(side="left", anchor="nw")
+
+        def _copy_url(_=None, _url=url):
+            self._root.clipboard_clear()
+            self._root.clipboard_append(_url)
+
+        url_lbl.bind("<Button-1>", _copy_url)
+        tk.Button(url_row, text="⎘", command=_copy_url, bg="#1a1a2e", fg="#6b7280",
+                  relief="flat", font=("Segoe UI", 11), cursor="hand2",
+                  bd=0, padx=3, activebackground="#1f2937",
+                  activeforeground="#9ca3af").pack(side="left", anchor="nw", pady=0)
+
+    # ── New session QR appended at bottom ────────────────────────────────────
+    def insert_new_session_qr(self, session: RemoteVoiceSession):
+        self._session = session
+        frame = tk.Frame(self._scroll_frame, bg="#1d2a3a",
+                         highlightbackground="#10b981", highlightthickness=1)
+        frame.pack(side="top", fill="x", pady=(4, 2))
+        self._render_qr_into(frame, session, label="▶ New Session")
+        self._scroll_to_bottom()
+
+    # ── Messages ──────────────────────────────────────────────────────────────
+    def enqueue(self, msg: dict):
+        self._queue.put(msg)
+
+    def _poll(self):
+        try:
+            while True:
+                msg = self._queue.get_nowait()
+                self._insert_message(msg)
+        except _queue_mod.Empty:
+            pass
+        self._root.after(200, self._poll)
+
+    def _insert_message(self, msg: dict):
+        text  = msg["text"]
+        frame = tk.Frame(self._scroll_frame, bg="#16213e",
+                         highlightbackground="#2d3748", highlightthickness=1)
+        frame.pack(side="top", fill="x", padx=4, pady=2)
+
+        current = [text]  # mutable so closures share one reference
+
+        lbl = tk.Label(frame, text=text, bg="#16213e", fg="#e0e0e0",
+                       font=("Segoe UI", 10), wraplength=self._WIN_W - 48,
+                       justify="left", anchor="w")
+        lbl.pack(fill="x", padx=10, pady=(8, 2))
+
+        btn_row = tk.Frame(frame, bg="#16213e")
+        btn_row.pack(fill="x", padx=6, pady=(0, 6))
+
+        def _copy():
+            self._root.clipboard_clear()
+            self._root.clipboard_append(current[0])
+
+        def _edit():
+            lbl.pack_forget()
+            win_h   = self._win.winfo_height()
+            n_lines = max(int(win_h * 0.7) // 17, 3)
+
+            edit_row = tk.Frame(frame, bg="#0f172a")
+            edit_row.pack(fill="x", padx=4, pady=(0, 2), before=btn_row)
+
+            txt = tk.Text(edit_row, bg="#0f172a", fg="#e0e0e0",
+                          relief="flat", font=("Segoe UI", 10),
+                          insertbackground="#e0e0e0", bd=0,
+                          wrap="word", height=n_lines, padx=8, pady=6)
+            txt.pack(side="left", fill="both", expand=True)
+            txt.insert("1.0", current[0])
+            txt.focus_set()
+            txt.mark_set("insert", "end")
+
+            def _save(_=None):
+                new_text = txt.get("1.0", "end-1c")
+                current[0] = new_text
+                lbl.config(text=new_text)
+                edit_row.pack_forget()
+                lbl.pack(fill="x", padx=10, pady=(8, 2), before=btn_row)
+
+            def _cancel(_=None):
+                edit_row.pack_forget()
+                lbl.pack(fill="x", padx=10, pady=(8, 2), before=btn_row)
+
+            btn_col = tk.Frame(edit_row, bg="#0f172a")
+            btn_col.pack(side="right", fill="y", padx=(2, 0))
+            tk.Button(btn_col, text="✓", command=_save,
+                      bg="#10b981", fg="#ffffff", activebackground="#059669",
+                      relief="flat", font=("Segoe UI", 14, "bold"),
+                      cursor="hand2", bd=0, width=2).pack(fill="both",
+                                                           expand=True, pady=(0, 1))
+            tk.Button(btn_col, text="✗", command=_cancel,
+                      bg="#ef4444", fg="#ffffff", activebackground="#dc2626",
+                      relief="flat", font=("Segoe UI", 14, "bold"),
+                      cursor="hand2", bd=0, width=2).pack(fill="both", expand=True)
+
+            txt.bind("<Escape>",         _cancel)
+            txt.bind("<Control-Return>", _save)
+
+        for icon, cmd in [("⎘", _copy), ("✎", _edit)]:
+            tk.Button(btn_row, text=icon, command=cmd, bg="#16213e", fg="#6b7280",
+                      relief="flat", font=("Segoe UI", 11), cursor="hand2",
+                      bd=0, padx=6, activebackground="#1e2d3d",
+                      activeforeground="#9ca3af").pack(side="left")
+
+        self._scroll_to_bottom()
+        if not self._visible:
+            self.show()
+
+    def _scroll_to_bottom(self):
+        self._canvas.update_idletasks()
+        self._canvas.yview_moveto(1.0)
+
+    def _clear_messages(self):
+        for w in list(self._scroll_frame.pack_slaves()):
+            w.destroy()
+
+    # ── Visibility ────────────────────────────────────────────────────────────
+    def show(self):
+        if self._win and self._win.winfo_exists():
+            self._win.deiconify()
+            self._win.lift()
+            self._visible = True
+
+    def hide(self):
+        if self._win and self._win.winfo_exists():
+            self._win.withdraw()
+            self._visible = False
+
+    def toggle(self):
+        if self._visible:
+            self.hide()
+        else:
+            self.show()
+
+    def is_alive(self) -> bool:
+        return bool(self._win and self._win.winfo_exists())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
