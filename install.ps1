@@ -85,10 +85,10 @@ try {
         Write-Host "  SKIP pet_sounds.json (existing config preserved)" -ForegroundColor DarkGray
     }
 
-    # 4. Cai Pillow
-    Write-Step "Installing Pillow..."
-    python -m pip install --quiet Pillow
-    Write-OK "Pillow"
+    # 4. Cai Pillow va qrcode
+    Write-Step "Installing Pillow, qrcode..."
+    python -m pip install --quiet Pillow "qrcode[pil]"
+    Write-OK "Pillow, qrcode"
 
     # 5. Wire Claude Code hooks
     Write-Step "Wiring Claude Code hooks..."

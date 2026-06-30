@@ -49,10 +49,10 @@ if not exist "%INSTALL_DIR%\pet_sounds.json" (
     echo    .   pet_sounds.json  (giu nguyen config hien co)
 )
 
-REM 4. Cai Pillow
-echo [4/6] Cai Pillow...
-python -m pip install --quiet Pillow
-echo    OK  Pillow
+REM 4. Cai Pillow va qrcode
+echo [4/6] Cai Pillow, qrcode...
+python -m pip install --quiet Pillow "qrcode[pil]"
+echo    OK  Pillow, qrcode
 
 REM 5. Wire Claude Code hooks + statusLine
 echo [5/6] Cap nhat Claude hooks (settings.json)...

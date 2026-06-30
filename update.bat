@@ -37,7 +37,7 @@ if "!BACKUP_DT!"=="" set "BACKUP_DT=backup"
 REM ── 1. Tao thu muc neu chua co ──────────────────────────────────────────────
 echo   [1/6] Chuan bi thu muc cai dat...
 
-python -m pip install --quiet Pillow 2>nul
+python -m pip install --quiet Pillow "qrcode[pil]" 2>nul
 
 if not exist "%INSTALL_DIR%" (
     mkdir "%INSTALL_DIR%"
